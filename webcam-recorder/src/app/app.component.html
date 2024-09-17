@@ -1,0 +1,23 @@
+<div class="title">
+  <button (click)="getCam()" [ngClass]="!showCam ? 'show' :'hide'" >Turn Camera On</button>
+</div>
+<div class="container">
+
+  <div [ngClass]="showCam ? 'show' :'hide'" class="webcam-width">
+    <video #video class="webcam-width" id="videoStream" autoplay  controls></video>
+    <br>
+    <button (click)="start()" >Start Record</button>
+    <button (click)="stop()" >Stop Record</button>
+    <select [(ngModel)]="selectedQuality" (change)="changeQuality(selectedQuality)">
+      <option *ngFor="let quality of videoQualityOptions" [ngValue]="quality">
+        {{ quality.label }}
+      </option>
+    </select>
+  </div>
+  <div [ngClass]="showVideos ? 'show' :'hide'" class="webcam-width">
+    <video #recordedVideo class="webcam-width" id="videoStream" autoplay controls></video>
+  </div>
+</div>
+<!-- <div style="width: 40vw;">
+  <full-calendar [options]="calendarOptions"></full-calendar>
+</div> -->
