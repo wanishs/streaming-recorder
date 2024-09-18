@@ -11,3 +11,19 @@
 .webcam-width {
     width: 500px;
 }
+
+.video-container {
+    position: relative;
+    display: inline-block;
+}
+
+.overlay-text {
+    position: absolute;
+    top: 10%;
+    left: 10%;
+    color: white;
+    font-size: 24px;
+    font-weight: bold;
+    background-color: rgba(0, 0, 0, 0.5); /* Optional: adds a semi-transparent background */
+    padding: 5px;
+}

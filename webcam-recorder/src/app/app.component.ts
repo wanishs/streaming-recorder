@@ -1,158 +1,167 @@
-import { Component, ElementRef, ViewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  HostListener,
+  OnChanges,
+  ViewChild,
+} from '@angular/core';
 import dayGridPlugin from '@fullcalendar/daygrid'; // import day grid plugin
-import interactionPlugin from '@fullcalendar/interaction'; 
-import { CalendarOptions } from '@fullcalendar/core'; 
+import interactionPlugin from '@fullcalendar/interaction';
+import { CalendarOptions } from '@fullcalendar/core';
+import { Observable } from 'rxjs/internal/Observable';
+import { map, timer } from 'rxjs';
+import { openDB } from 'idb';
 @Component({
   selector: 'app-root',
   templateUrl: './app.component.html',
-  styleUrls: ['./app.component.scss']
+  styleUrls: ['./app.component.scss'],
 })
 export class AppComponent {
+  @ViewChild('video', { static: true })
+  videoElement!: ElementRef<HTMLVideoElement>;
+  mediaRecorder!: MediaRecorder;
+  recordedChunks: any[] = [];
+  isRecording = false;
+  indexDb = 1;
+  currentTime$!: Observable<Date>
 
-  // webcam
-  @ViewChild('recordedVideo') recordVideoElementRef! : ElementRef;  // recordedVideo is assigned to DOM Element recordVideoElementRef
-  @ViewChild('video') videoElementRef!: ElementRef; // video is assigned to DOM Element videoElementRef
-
-  videoResponse: any; // Cam Started or not
-  stream : any;
-  videoElement!: HTMLVideoElement;
-  recordVideoElement!: HTMLVideoElement;
-  mediaRecorder: any;
-  recordedBlobs!: Blob[];
-  isRecording: boolean = false;
-  videoUrl : any;
-  showCam = false;
-  showVideos = false;
-
-  // calendar
-  events: any[] = [];
-  selectedEvent: any = null;
-
-  videoQualityOptions = [
-    { label: '360p', width: 640, height: 360 },
-    { label: '480p', width: 854, height: 480 },
-    { label: '720p', width: 1280, height: 720 },
-    { label: '1080p', width: 1920, height: 1080 },
-  ];
-
-  selectedQuality: any = this.videoQualityOptions[0];
-
-  calendarOptions: CalendarOptions = {
-    plugins: [dayGridPlugin, interactionPlugin], // Add plugins
-    initialView: 'dayGridMonth', // View
-    editable: true, // Allow event editing
-    selectable: true, // Allow date selection
-    events: this.events, // Predefined events
-    eventClick: this.handleEventClick.bind(this), // Event click handler
-    dateClick: this.handleDateClick.bind(this) // Date click handler
-  };
-
-  constructor() {
-    this.events = [
-      { title: 'Event 1', date: '2024-09-09' },
-      { title: 'Event 2', date: '2024-09-10' }
-    ];
-    this.calendarOptions.events = [...this.events];
+  async ngOnInit(): Promise<void> {
+    this.currentTime$ = timer(0, 1000).pipe(
+      map(() => new Date())
+    );
+    this.startVideoStream();
   }
 
-  ngOnInit(){
-    this.videoResponse = document.getElementById('videoStream');
-  }
-
-  getCam(){
-    this.showCam=true;
-    navigator.mediaDevices.getUserMedia({video:{width:500, height:500}, audio:true})
-    .then((response)=>{
-      this.stream = response;
-      console.log("Video Response",response);
-      this.videoElement = this.videoElementRef.nativeElement;
-      this.recordVideoElement = this.recordVideoElementRef.nativeElement;
-      
-      this.videoElement.srcObject = response;
-      this.videoResponse.srcObject = response;
-      }
-    ).catch(err=> console.log("Error has occured"));
-  }
-
-  async start() {
-    // Reset recorded blobs
-    this.recordedBlobs = [];
-
-    // Get stream with selected resolution
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { exact: this.selectedQuality.width },
-          height: { exact: this.selectedQuality.height }
-        },
-        audio: true // Include audio if needed
+  startVideoStream() {
+    navigator.mediaDevices
+      .getUserMedia({ video: true })
+      .then((stream) => {
+        this.videoElement.nativeElement.srcObject = stream;
+      })
+      .catch((error) => {
+        console.error('Error accessing the camera: ', error);
       });
-
-      // Create a new MediaRecorder with mp4 MIME type (or other supported format)
-      let mediaRecorderOptions: any = { mimeType: 'video/webm; codecs=vp8' }; // mp4 not fully supported in all browsers
-      this.mediaRecorder = new MediaRecorder(this.stream, mediaRecorderOptions);
-      this.mediaRecorder.start();
-      this.isRecording = true;
-
-      console.log('MediaRecorder state:', this.mediaRecorder.state);
-
-      // Handle data available
-      this.mediaRecorder.ondataavailable = (event: any) => {
-        if (event.data && event.data.size > 0) {
-          this.recordedBlobs.push(event.data);
-        }
-      };
-
-      // Handle stop event
-      this.mediaRecorder.onstop = (event: any) => {
-        const videoBuffer = new Blob(this.recordedBlobs, { type: 'video/webm' }); // Save in webm format
-        this.videoUrl = window.URL.createObjectURL(videoBuffer);
-        this.recordVideoElement.src = this.videoUrl;
-      };
-
-    } catch (error) {
-      console.error('Error accessing media devices.', error);
-    }
   }
 
-  stop(){
+  startRecording() {
+    const stream = this.videoElement.nativeElement.srcObject as MediaStream;
+    this.mediaRecorder = new MediaRecorder(stream);
+    this.recordedChunks = [];
+
+    this.mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        this.recordedChunks.push(event.data);
+        console.log(this.recordedChunks);
+      }
+    };
+
+    this.mediaRecorder.onstop = async () => {
+      console.log('onstop');
+
+      // Create a Blob from the recorded chunks
+      const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
+      console.log(blob);
+
+      // Store the Blob in IndexedDB
+      await this.storeVideoInIndexedDB(blob);
+      console.log('Video saved to IndexedDB');
+    };
+
+    this.mediaRecorder.start();
+    this.isRecording = true;
+  }
+
+  stopRecording() {
     this.mediaRecorder.stop();
-    this.isRecording = !this.isRecording;
-    this.showVideos=!this.showVideos;
+    this.isRecording = false;
   }
 
-  changeQuality(selectedQuality: any) {
-    this.selectedQuality = selectedQuality;
-    if (this.isRecording) {
-      this.stop();
-      this.start(); // Restart recording with new resolution
-    }
+  async storeVideoInIndexedDB(blob: Blob) {
+    // Open the database
+    const db = await openDB('video-store', 2, {
+      upgrade(db) {
+        // Ensure the object store is created without autoIncrement
+        if (!db.objectStoreNames.contains('videos')) {
+          db.createObjectStore('videos'); // No keyPath or autoIncrement
+          console.log("Object store 'videos' created without autoIncrement.");
+        }
+      },
+    });
+
+    // Create a transaction and store the blob
+    const tx = db.transaction('videos', 'readwrite');
+    const store = tx.objectStore('videos');
+
+    // Generate a unique key (e.g., timestamp) and store the video Blob
+    const key = new Date().getTime(); // Use the current timestamp as the key
+    const videoData = { blob: blob, timestamp: new Date().toISOString() };
+    await store.add(videoData, key); // Provide the key explicitly
+    console.log('Video stored successfully with key:', key);
+    // Count the number of stored items in the 'videos' object store
+    const count = await store.count();
+    console.log(`Total stored videos: ${count}`);
+
+    // Complete the transaction
+    await tx.done;
   }
 
-  // calendar
-  handleDateClick(arg: any) {
-    const title = prompt('Enter Event Title');
-    if (title) {
-      const newEvent = { title: title, date: arg.dateStr };
-      this.events.push(newEvent);
-      this.calendarOptions.events = [...this.events]; // Refresh events
-    }
-  }
+  async retrieveVideo() {
+    const db = await openDB('video-store', 2);
+    const blob = await db.get('videos', 'recorded-video');
 
-  handleEventClick(arg: any) {
-    this.selectedEvent = arg.event;
-    const edit = confirm('Do you want to edit this event?');
-    if (edit) {
-      const newTitle = prompt('Edit Event Title', this.selectedEvent.title);
-      if (newTitle) {
-        this.selectedEvent.setProp('title', newTitle); // Edit event title
-      }
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      this.videoElement.nativeElement.src = url;
+      console.log('Video retrieved and playing from IndexedDB');
     } else {
-      const del = confirm('Do you want to delete this event?');
-      if (del) {
-        this.selectedEvent.remove(); // Remove event
-        this.events = this.events.filter((event) => event !== this.selectedEvent);
-      }
+      console.error('No video found in IndexedDB');
     }
+  }
+
+  async downloadVideoFromIndexedDB() {
+    // Open the IndexedDB database
+    const db = await openDB('video-store', 2);
+  
+    // Start a transaction to read the 'videos' object store
+    const tx = db.transaction('videos', 'readonly');
+    const store = tx.objectStore('videos');
+  
+    // Retrieve all data from the 'videos' store
+    const allVideos = await store.getAll(); // This returns an array of all the stored videos
+  
+    // Check if any videos are stored
+    if (allVideos.length > 0) {
+      console.log('Videos found:', allVideos);
+  
+      // Loop through all stored videos and download each one
+      allVideos.forEach((videoData, index) => {
+        if (videoData.blob) {
+          // Create a URL for the Blob object
+          const videoURL = URL.createObjectURL(videoData.blob);
+  
+          // Create an anchor element and trigger the download for each video
+          const a = document.createElement('a');
+          a.href = videoURL;
+          a.download = `downloaded-video-${index + 1}.webm`; // Set unique file name for each video
+          document.body.appendChild(a);
+          a.click(); // Simulate a click to trigger the download
+          document.body.removeChild(a); // Remove the anchor element from the DOM
+  
+          // Revoke the Blob URL to free up memory
+          URL.revokeObjectURL(videoURL);
+        }
+      });
+    } else {
+      console.log('No videos found in IndexedDB.');
+    }
+  
+    // Complete the transaction
+    await tx.done;
+  }
+  
+
+  async clear() {
+    await indexedDB.deleteDatabase('video-store');
+    console.log('Database deleted.');
   }
 }
